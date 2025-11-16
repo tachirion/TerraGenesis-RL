@@ -31,7 +31,7 @@ To train a single algorithm only, edit `config.yaml` or modify `train.py` to sel
 Evaluate a trained model (greedy, deterministic):
 
 ```bash
-python code/evaluate.py --config code/config.yaml --algo SAC --model models/SAC/SAC_final.zip --n_episodes 10
+python code/evaluate.py --config code/config.yaml --algo SAC --model models/SAC/SAC_final --n_episodes 10
 ```
 
 Replace SAC and model path with other algorithms.
