@@ -13,13 +13,13 @@ training:
   timesteps: 500000
   n_envs: 4
   save_freq: 50000
-  eval_freq: 50000        # (optional)
+  eval_freq: 50000
   eval_episodes: 5
 
 logging:
-  results_dir: ../..      # relative to code/ so top-level folders created next to code/
-  tb_log_folder: logs/tensorboard
-  csv_log_folder: logs/csv
+  results_dir: logs
+  tb_log_folder: tensorboard
+  csv_log_folder: csv
 
 sac:
   learning_rate: 3e-4
