@@ -56,19 +56,53 @@ class CSVLoggingCallback(BaseCallback):
     def __init__(self, writer, verbose=0):
         super().__init__(verbose)
         self.writer = writer
-        self.episode_rewards = []
-        self.episode_infos = []
 
     def _on_step(self) -> bool:
-        info = self.locals.get("infos", [{}])[0]
-        reward = self.locals.get("rewards", [0.0])[0]
-        if "episode" in info:
-            ep_info = info["episode"]
-            # Save metrics
-            self.writer.write([
-                ep_info["r"],  # total reward
-                ep_info.get("true_habitability", np.nan),
-                ep_info.get("instability", np.nan),
-                ep_info.get("resource_used", np.nan)
-            ])
+        infos = self.locals.get("infos", [{}])
+        for info in infos:
+            if "episode" in info:
+                ep_info = info["episode"]
+                self.writer.write([
+                    ep_info.get("r", np.nan),
+                    ep_info.get("true_habitability", np.nan),
+                    ep_info.get("instability", np.nan),
+                    ep_info.get("resource_used", np.nan)
+                ])
         return True
+
+
+class StepLoggingCallback(BaseCallback):
+    def __init__(self, step_csv_path, verbose=0):
+        super().__init__(verbose)
+        self.step_csv_path = step_csv_path
+        self.step_logs = []
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [{}])
+        actions = self.locals.get("actions", [None] * len(infos))
+        rewards = self.locals.get("rewards", [0] * len(infos))
+
+        for i, info in enumerate(infos):
+            action = actions[i] if i < len(actions) else None
+            reward = rewards[i] if i < len(rewards) else 0
+            self.step_logs.append({
+                "episode": info.get("episode", np.nan),
+                "step": info.get("step", np.nan),
+                "action": action.tolist() if hasattr(action, "tolist") else action,
+                "reward": reward,
+                "true_habitability": info.get("true_habitability", np.nan),
+                "event": info.get("event", "none"),
+                "instability": info.get("instability", np.nan),
+                "resource_used": info.get("resource_used", 1)
+            })
+        return True
+
+    def _on_training_end(self):
+        os.makedirs(os.path.dirname(self.step_csv_path), exist_ok=True)
+        fieldnames = ["episode","step","action","reward","true_habitability","event","instability","resource_used"]
+        import csv
+        with open(self.step_csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.step_logs)
+
