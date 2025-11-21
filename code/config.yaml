@@ -1,7 +1,7 @@
 seed: 42
 
 env:
-  max_steps: 200
+  max_steps: 400
   stable_steps_required: 5
 
 training:
@@ -9,11 +9,10 @@ training:
     - SAC
     - TD3
     - DDPG
-#    - PPO
-  timesteps: 500000
+  timesteps: 1_000_000
   n_envs: 4
-  save_freq: 50000
-  eval_freq: 50000
+  save_freq: 50_000
+  eval_freq: 50_000
   eval_episodes: 5
 
 logging:
@@ -21,43 +20,34 @@ logging:
   tb_log_folder: tensorboard
   csv_log_folder: csv
 
+# after running optim_sac.py. best reward: 327.39
 sac:
-  learning_rate: 3e-4
-  buffer_size: 300000
+  learning_rate: 4.487646885499198e-05
+  buffer_size: 1_000_000
   batch_size: 256
-  gamma: 0.99
-  tau: 0.005
-  ent_coef: 'auto_0.1'
-  learning_starts: 1000
-  net_arch: [256, 256]
+  gamma: 0.9816403217164245
+  tau: 0.01073077717759888
+  ent_coef: 'auto'
+  learning_starts: 10_000
+  net_arch: [128, 128]
 
 td3:
-  learning_rate: 1e-3
-  buffer_size: 300000
+  learning_rate: 3e-4
+  buffer_size: 1_000_000
   batch_size: 256
   gamma: 0.99
   tau: 0.005
-  learning_starts: 2000
-  policy_delay: 2
-  target_policy_noise: 0.2
-  target_noise_clip: 0.5
+  learning_starts: 10_000
+  policy_delay: 3
+  target_policy_noise: 0.1
+  target_noise_clip: 0.3
   net_arch: [256, 256]
 
 ddpg:
-  learning_rate: 1e-3
-  buffer_size: 300000
-  batch_size: 256
+  learning_rate: 5e-4
+  buffer_size: 1_000_000
+  batch_size: 512
   gamma: 0.99
   tau: 0.005
-  learning_starts: 2000
+  learning_starts: 10_000
   net_arch: [256, 256]
-
-#ppo:
-#  learning_rate: 3e-4
-#  n_steps: 2048
-#  batch_size: 64
-#  n_epochs: 10
-#  gamma: 0.99
-#  gae_lambda: 0.95
-#  clip_range: 0.2
-#  net_arch: [64, 64]

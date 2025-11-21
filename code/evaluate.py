@@ -25,7 +25,6 @@ def load_config(path):
         config = yaml.safe_load(f)
     return config
 
-
 def evaluate(model, env, n_episodes=100, seed=0):
     results = []
     for ep in range(n_episodes):
@@ -34,12 +33,16 @@ def evaluate(model, env, n_episodes=100, seed=0):
         total_r = 0.0
         steps = 0
         habs = []
+        event_count = 0
 
         while not done:
             action, _ = model.predict(obs, deterministic=True)
             obs, r, term, trunc, info = env.step(action)
             total_r += r
             habs.append(info.get("true_habitability", np.nan))
+            event = info.get("event", "none")
+            if event != "none":
+                event_count += 1
             done = term or trunc
             steps += 1
 
@@ -47,10 +50,12 @@ def evaluate(model, env, n_episodes=100, seed=0):
             "episode": ep,
             "return": total_r,
             "steps": steps,
-            "mean_habitability": float(np.nanmean(habs))
+            "mean_habitability": float(np.nanmean(habs)),
+            "events": event_count
         })
 
     return results
+
 
 
 def main(args):
@@ -81,7 +86,7 @@ def main(args):
     csv_path = os.path.join(log_dir, f"{algo}_eval_results.csv")
 
     with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["episode", "return", "steps", "mean_habitability"])
+        writer = csv.DictWriter(f, fieldnames=["episode", "return", "steps", "mean_habitability", "events"])
         writer.writeheader()
         writer.writerows(results)
 
@@ -98,7 +103,6 @@ def main(args):
     plt.savefig(os.path.join(plot_dir, f"{algo}_eval_returns.png"))
     plt.close()
 
-    # Habitability plot
     plt.figure(figsize=(6, 4))
     plt.plot(habs, marker="o")
     plt.xlabel("Episode")
@@ -123,3 +127,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args)
+
+# run     : python evaluate.py --config config.yaml --algo SAC --model models/sac/sac_final --n_episodes 50

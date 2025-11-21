@@ -1,6 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+from typing import cast
 
 
 class TerraGenesisEnv(gym.Env):
@@ -22,21 +23,18 @@ class TerraGenesisEnv(gym.Env):
         # 3 = Water
         # 4 = Biomass
         # 5 = Habitability (computed)
-
         self.obs_dim = 6
         self.act_dim = 5
 
         self.observation_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(self.obs_dim,),
+            low=np.full(self.obs_dim, -1.0, dtype=np.float32),
+            high=np.full(self.obs_dim, 1.0, dtype=np.float32),
             dtype=np.float32
         )
 
         self.action_space = spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(self.act_dim,),
+            low=np.full(self.act_dim, -1.0, dtype=np.float32),
+            high=np.full(self.act_dim, 1.0, dtype=np.float32),
             dtype=np.float32
         )
 
@@ -47,199 +45,186 @@ class TerraGenesisEnv(gym.Env):
 
         self.rng = np.random.default_rng(seed)
 
-        self.target = np.array([
-            0.2,   # Temperature
-            0.5,   # Oxygen
-            0.4,   # Pressure
-            0.6,   # Water
-            0.3    # Biomass
-        ], dtype=np.float32)
-
+        # targets for the first 5 state dims (including biomass)
+        self.target = np.array([0.2, 0.5, 0.4, 0.6, 0.3], dtype=np.float32)
         self.resource_budget = 300.0
         self.resource_used = 0.0
 
         self.state = None
         self.prev_state = None
 
-    # ==============================================================
-    # RESET
-    # ==============================================================
+        # importance weights for reward calculation (default all 1)
+        self.importance = np.ones(4, dtype=np.float32)
 
+    # ----------------------------------------------------
+    # RESET
+    # ----------------------------------------------------
     def reset(self, seed=None, options=None):
         if seed is not None:
             self.rng = np.random.default_rng(seed)
-
-        # Initialize physical world
-        self.state = self.rng.uniform(
-            low=-0.2,
-            high=0.2,
-            size=(self.obs_dim,)
-        ).astype(np.float32)
-
+        self.state = self.rng.uniform(low=-0.2, high=0.2, size=(self.obs_dim,)).astype(np.float32)
+        # ensure biomass has a sensible start and compute habitability into index 5
+        self.state[4] = np.clip(self.state[4], -1.0, 1.0)
         self.state[5] = self.compute_habitability(self.state)
-
         self.prev_state = self.state.copy()
         self.step_count = 0
         self.stable_counter = 0
         self.resource_used = 0.0
-
         return self.state, {}
 
-    # ==============================================================
-    # COMPUTE HABITABILITY (0 = bad, 1 = perfect)
-    # ==============================================================
-
+    # ----------------------------------------------------
+    # HABITABILITY
+    # ----------------------------------------------------
     def compute_habitability(self, s):
+        # compare first 5 dims (including biomass) to target
         diff = np.abs(s[:5] - self.target).sum()
         return float(1.0 - diff / 5.0)
 
-    # ==============================================================
-    # RANDOM THREAT GENERATOR
-    # ==============================================================
-
+    # ----------------------------------------------------
+    # RANDOM EVENTS
+    # ----------------------------------------------------
     def apply_random_event(self):
-        """
-        TerraGenesis-style disasters.
-        Each step has a 10% chance of an event.
-        """
-
         roll = self.rng.random()
-
-        if roll > 0.10:     # 10% chance of event
+        if roll > 0.10:
             return "none"
-
         event_roll = self.rng.random()
-
-        # ------------ Asteroid Impact -------------
         if event_roll < 0.2:
-            self.state[2] -= 0.15     # Pressure drop
-            self.state[3] -= 0.10     # Water flash vaporized
-            return "asteroid"
-
-        # ------------ Solar Flare ------------------
+            # asteroid: pressure & water drop, small biomass hit
+            self.state[2] -= 0.15
+            self.state[3] -= 0.10
+            self.state[4] -= 0.05
+            event = "asteroid"
         elif event_roll < 0.4:
-            self.state[0] += 0.12     # Heat spike
-            return "solar_flare"
-
-        # ------------ Volcanic Eruption ------------
+            # solar flare: temperature spike
+            self.state[0] += 0.12
+            event = "solar_flare"
         elif event_roll < 0.6:
-            self.state[1] += 0.1      # Oxygen boost
-            self.state[2] += 0.1      # Pressure change
-            return "volcano"
-
-        # ------------ Drought ----------------------
+            # volcano: oxygen and pressure increase
+            self.state[1] += 0.10
+            self.state[2] += 0.10
+            event = "volcano"
         elif event_roll < 0.8:
+            # drought: water drops, biomass affected
             self.state[3] -= 0.12
-            return "drought"
-
-        # ------------ Flood ------------------------
+            self.state[4] -= 0.06
+            event = "drought"
         else:
+            # flood: water rises but biomass suffers
             self.state[3] += 0.12
-            self.state[4] -= 0.1       # Biomass damage
-            return "flood"
+            self.state[4] -= 0.10
+            event = "flood"
 
-    # ==============================================================
-    # STEP FUNCTION
-    # ==============================================================
+        # clip affected state dims to valid range
+        self.state[:5] = np.clip(self.state[:5], -1.0, 1.0)
+        return event
 
+    # ----------------------------------------------------
+    # STEP
+    # ----------------------------------------------------
     def step(self, action):
-        action = np.clip(action, self.action_space.low, self.action_space.high)
+        action = np.clip(action, cast(spaces.Box, self.action_space).low, cast(spaces.Box, self.action_space).high)
         self.prev_state = self.state.copy()
 
-        # === SIMULATION UPDATE ===
         delta = 0.05 * action[:4]
         noise = self.rng.normal(0, 0.005, size=(4,))
         self.state[:4] = np.clip(self.state[:4] + delta + noise, -1.0, 1.0)
 
-        # global habitability indicator
-        self.state[4] = np.clip(
-            -np.sum(np.abs(self.state[:4] - self.target[:4])) / 2.0,
-            -1.0,
-            1.0
-        )
+        biomass_delta = 0.03 * action[4] + self.rng.normal(0, 0.01)
+        self.state[4] = float(np.clip(self.state[4] + biomass_delta, -1.0, 1.0))
+
+        event = self.apply_random_event()
+
+        self.state[5] = self.compute_habitability(self.state)
+
+        self.state = np.clip(self.state, -1.0, 1.0).astype(np.float32)
 
         action_cost = float(np.sum(np.square(action)))
         self.resource_used += action_cost
 
+        # Reward
         reward = 0.0
-
-        # ------------------------------------------------------------------
-        # 1) Weighted tracking penalty
-        # ------------------------------------------------------------------
         errors = (self.state[:4] - self.target[:4]) ** 2
         weighted_error = np.sum(self.importance * errors)
-        r_task = -weighted_error
-        reward += r_task
-
-        # ------------------------------------------------------------------
-        # 2) Smoothness (reward stable control)
-        # ------------------------------------------------------------------
+        reward += -weighted_error
         instability = float(np.sum(np.abs(self.state - self.prev_state)))
-        r_smooth = 1.0 - np.tanh(instability)
-        reward += r_smooth
+        reward += 1.0 - np.tanh(instability)
+        reward += -0.05 * action_cost
 
-        # ------------------------------------------------------------------
-        # 3) Resource cost (small penalty)
-        # ------------------------------------------------------------------
-        r_cost = -0.05 * action_cost
-        reward += r_cost
-
-        # ------------------------------------------------------------------
-        # 4) Bonuses for entering stable zones
-        # ------------------------------------------------------------------
         for i in range(4):
             now_good = abs(self.state[i] - self.target[i]) < 0.05
             was_good = abs(self.prev_state[i] - self.target[i]) < 0.05
-
             if now_good and not was_good:
-                reward += 5.0  # milestone
+                reward += 5.0
             elif was_good and not now_good:
-                reward -= 7.0  # penalty
+                reward -= 7.0
 
-        # ------------------------------------------------------------------
-        # 5) Bonus for global habitability
-        # ------------------------------------------------------------------
         diff = float(np.linalg.norm(self.state[:4] - self.target[:4]))
-
         if diff < 0.05:
             self.stable_counter += 1
-            reward += 20.0  # global stability reward
+            reward += 20.0
         else:
             self.stable_counter = 0
 
-        # === TERMINATION RULES ===
         self.step_count += 1
         terminated = False
         truncated = False
-
         if self.stable_counter >= self.stable_steps_required:
             terminated = True
-            reward += 100.0  # big win
-
+            reward += 100.0
         if self.step_count >= self.max_steps:
             truncated = True
-
         if self.resource_used > self.resource_budget:
             terminated = True
             reward -= 50.0
 
+        # -------------------------
+        # Active threats logic
+        # -------------------------
+        threats = []
+        labels = ["Temperature", "Oxygen", "Pressure", "Water"]
+        for i, val in enumerate(self.state[:4]):
+            if val < -0.6:
+                threats.append({
+                    "id": f"{i}_low",
+                    "type": labels[i],
+                    "severity": "High",
+                    "description": f"{labels[i]} dangerously low!",
+                    "icon": "⚠️"
+                })
+            elif val > 0.8:
+                threats.append({
+                    "id": f"{i}_high",
+                    "type": labels[i],
+                    "severity": "Medium",
+                    "description": f"{labels[i]} too high!",
+                    "icon": "🔥"
+                })
+
         info = {
             "weighted_error": weighted_error,
             "instability": instability,
-            "resource_used": self.resource_used
+            "resource_used": self.resource_used,
+            "threats": threats,
+            "event": event,
+            "true_habitability": float(self.state[5])
         }
 
         return self.state, float(reward), terminated, truncated, info
 
-# ==============================================================
-# ENV FACTORY FOR VEC/ASYNC TRAINING
-# ==============================================================
+    def render(self, mode="human"):
+        if mode == "human":
+            print("Step:", self.step_count, "State:", np.round(self.state, 3))
+            return None
+        else:
+            return self.state
 
+    def close(self):
+        pass
+
+# ----------------------------------------------------
+# ENV FACTORY
+# ----------------------------------------------------
 def make_env_fn(max_steps=300, stable_steps_required=10, seed=None):
     def _init():
-        return TerraGenesisEnv(
-            max_steps=max_steps,
-            stable_steps_required=stable_steps_required,
-            seed=seed
-        )
+        return TerraGenesisEnv(max_steps=max_steps, stable_steps_required=stable_steps_required, seed=seed)
     return _init
