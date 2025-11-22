@@ -17,12 +17,7 @@ class TerraGenesisEnv(gym.Env):
         super().__init__()
 
         # --------- State Dimensions --------------
-        # 0 = Temperature
-        # 1 = Oxygen
-        # 2 = Pressure
-        # 3 = Water
-        # 4 = Biomass
-        # 5 = Habitability (computed)
+        # 0 = Temperature, 1 = Oxygen, 2 = Pressure, 3 = Water, 4 = Biomass, 5 = Habitability
         self.obs_dim = 6
         self.act_dim = 5
 
@@ -45,15 +40,12 @@ class TerraGenesisEnv(gym.Env):
 
         self.rng = np.random.default_rng(seed)
 
-        # targets for the first 5 state dims (including biomass)
         self.target = np.array([0.2, 0.5, 0.4, 0.6, 0.3], dtype=np.float32)
         self.resource_budget = 300.0
         self.resource_used = 0.0
 
         self.state = None
         self.prev_state = None
-
-        # importance weights for reward calculation (default all 1)
         self.importance = np.ones(4, dtype=np.float32)
 
     # ----------------------------------------------------
@@ -63,7 +55,6 @@ class TerraGenesisEnv(gym.Env):
         if seed is not None:
             self.rng = np.random.default_rng(seed)
         self.state = self.rng.uniform(low=-0.2, high=0.2, size=(self.obs_dim,)).astype(np.float32)
-        # ensure biomass has a sensible start and compute habitability into index 5
         self.state[4] = np.clip(self.state[4], -1.0, 1.0)
         self.state[5] = self.compute_habitability(self.state)
         self.prev_state = self.state.copy()
@@ -76,7 +67,6 @@ class TerraGenesisEnv(gym.Env):
     # HABITABILITY
     # ----------------------------------------------------
     def compute_habitability(self, s):
-        # compare first 5 dims (including biomass) to target
         diff = np.abs(s[:5] - self.target).sum()
         return float(1.0 - diff / 5.0)
 
@@ -89,32 +79,26 @@ class TerraGenesisEnv(gym.Env):
             return "none"
         event_roll = self.rng.random()
         if event_roll < 0.2:
-            # asteroid: pressure & water drop, small biomass hit
             self.state[2] -= 0.15
             self.state[3] -= 0.10
             self.state[4] -= 0.05
             event = "asteroid"
         elif event_roll < 0.4:
-            # solar flare: temperature spike
             self.state[0] += 0.12
             event = "solar_flare"
         elif event_roll < 0.6:
-            # volcano: oxygen and pressure increase
             self.state[1] += 0.10
             self.state[2] += 0.10
             event = "volcano"
         elif event_roll < 0.8:
-            # drought: water drops, biomass affected
             self.state[3] -= 0.12
             self.state[4] -= 0.06
             event = "drought"
         else:
-            # flood: water rises but biomass suffers
             self.state[3] += 0.12
             self.state[4] -= 0.10
             event = "flood"
 
-        # clip affected state dims to valid range
         self.state[:5] = np.clip(self.state[:5], -1.0, 1.0)
         return event
 
@@ -133,15 +117,13 @@ class TerraGenesisEnv(gym.Env):
         self.state[4] = float(np.clip(self.state[4] + biomass_delta, -1.0, 1.0))
 
         event = self.apply_random_event()
-
         self.state[5] = self.compute_habitability(self.state)
-
         self.state = np.clip(self.state, -1.0, 1.0).astype(np.float32)
 
         action_cost = float(np.sum(np.square(action)))
         self.resource_used += action_cost
 
-        # Reward
+        # --- Reward computation ---
         reward = 0.0
         errors = (self.state[:4] - self.target[:4]) ** 2
         weighted_error = np.sum(self.importance * errors)
@@ -177,9 +159,7 @@ class TerraGenesisEnv(gym.Env):
             terminated = True
             reward -= 50.0
 
-        # -------------------------
-        # Active threats logic
-        # -------------------------
+        # --- Threats info ---
         threats = []
         labels = ["Temperature", "Oxygen", "Pressure", "Water"]
         for i, val in enumerate(self.state[:4]):
@@ -202,15 +182,29 @@ class TerraGenesisEnv(gym.Env):
 
         info = {
             "weighted_error": weighted_error,
-            "instability": instability,
-            "resource_used": self.resource_used,
             "threats": threats,
             "event": event,
-            "true_habitability": float(self.state[5])
+            "true_habitability": float(self.state[5]),
+            "instability": float(instability),
+            "resource_used": float(self.resource_used),
         }
+
+        # --- Episode metrics for SB3 / VecMonitor ---
+        if terminated or truncated:
+            # keep the episode dict as well (SB3 expects 'r' etc), but since Monitor may
+            # overwrite/replace it, also expose metrics at top level (above)
+            info["episode"] = {
+                "r": float(reward),
+                "true_habitability": float(self.state[5]),
+                "instability": float(instability),
+                "resource_used": float(self.resource_used),
+            }
 
         return self.state, float(reward), terminated, truncated, info
 
+    # ----------------------------------------------------
+    # RENDER
+    # ----------------------------------------------------
     def render(self, mode="human"):
         if mode == "human":
             print("Step:", self.step_count, "State:", np.round(self.state, 3))
@@ -220,6 +214,7 @@ class TerraGenesisEnv(gym.Env):
 
     def close(self):
         pass
+
 
 # ----------------------------------------------------
 # ENV FACTORY

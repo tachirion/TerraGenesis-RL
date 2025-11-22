@@ -12,6 +12,9 @@ from utils import set_global_seeds, CSVWriter, CSVLoggingCallback, StepLoggingCa
 ALGOS = {"SAC": SAC, "TD3": TD3, "DDPG": DDPG}
 
 
+# --------------------------------------------------------------
+#  LOAD CONFIG
+# --------------------------------------------------------------
 def load_config(path):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Config not found: {path}")
@@ -19,9 +22,13 @@ def load_config(path):
         return yaml.safe_load(f)
 
 
+# --------------------------------------------------------------
+#  BUILD VECTORIZED ENVS
+# --------------------------------------------------------------
 def build_vec_envs(config):
     n_envs = config["training"].get("n_envs", 1)
     seed = config.get("seed", 0)
+
     env_fns = [
         make_env_fn(
             max_steps=config["env"]["max_steps"],
@@ -30,31 +37,46 @@ def build_vec_envs(config):
         )
         for i in range(n_envs)
     ]
+
     vec_env = DummyVecEnv(env_fns)
     vec_env = VecMonitor(vec_env)
     return vec_env
 
 
+# --------------------------------------------------------------
+#  BUILD MODEL
+# --------------------------------------------------------------
 def build_model(algo_name, vec_env, config, tb_log_name):
     algo = algo_name.upper()
     if algo not in ALGOS:
         raise ValueError(f"Unknown algo: {algo}")
+
     ModelClass = ALGOS[algo]
     algo_cfg = config[algo.lower()]
+
     kwargs = {
         "learning_rate": float(algo_cfg["learning_rate"]),
         "buffer_size": int(algo_cfg["buffer_size"]),
         "batch_size": int(algo_cfg["batch_size"]),
         "gamma": float(algo_cfg["gamma"]),
         "tau": float(algo_cfg["tau"]),
-        "learning_starts": int(algo_cfg["learning_starts"]),
+        "learning_starts": int(algo_cfg.get("learning_starts", 0)),
         "policy_kwargs": dict(net_arch=algo_cfg["net_arch"]),
-        "verbose": 1
+        "verbose": 1,
     }
-    model = ModelClass("MlpPolicy", vec_env, tensorboard_log=tb_log_name, **kwargs)
+
+    model = ModelClass(
+        "MlpPolicy",
+        vec_env,
+        tensorboard_log=tb_log_name,
+        **kwargs
+    )
     return model
 
 
+# --------------------------------------------------------------
+#  MAIN TRAINING LOOP
+# --------------------------------------------------------------
 def main(args, algo_name):
     config = load_config(args.config)
     set_global_seeds(config.get("seed", 0))
@@ -62,7 +84,7 @@ def main(args, algo_name):
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, ".."))
 
-    results_dir = os.path.join(ROOT_DIR, config.get("logging", {}).get("results_dir", "results"))
+    results_dir = os.path.join(ROOT_DIR, config["logging"].get("results_dir", "results"))
     tb_folder = os.path.join(results_dir, config["logging"]["tb_log_folder"])
     csv_folder = os.path.join(results_dir, config["logging"]["csv_log_folder"])
     os.makedirs(tb_folder, exist_ok=True)
@@ -80,22 +102,41 @@ def main(args, algo_name):
 
     for algo_name in algos:
         print(f"\n=== Training {algo_name} ===")
+
         run_id = time.strftime("%Y-%m-%d_%H-%M-%S")
+
         tb_log_name = os.path.join(tb_folder, f"{algo_name}_{run_id}")
         csv_path = os.path.join(csv_folder, f"{algo_name}_{run_id}.csv")
         step_csv_path = os.path.join(csv_folder, f"{algo_name}_{run_id}_steps.csv")
 
-        # Callbacks
-        csv_writer = CSVWriter(csv_path, headers=["total_reward", "mean_habitability", "instability", "resource_used"])
+        # --------------------------------------------------
+        # CSV episode logger
+        # --------------------------------------------------
+        csv_writer = CSVWriter(
+            csv_path,
+            headers=[
+                "episode_reward",
+                "true_habitability",
+                "instability",
+                "resource_used",
+            ]
+        )
         episode_cb = CSVLoggingCallback(csv_writer)
+
         step_cb = StepLoggingCallback(step_csv_path)
 
         vec_env = build_vec_envs(config)
+
         model = build_model(algo_name, vec_env, config, tb_log_name)
 
         checkpoint_dir = os.path.join(models_dir, algo_name)
         os.makedirs(checkpoint_dir, exist_ok=True)
-        checkpoint_cb = CheckpointCallback(save_freq=save_freq, save_path=checkpoint_dir, name_prefix=f"{algo_name}_ckpt")
+
+        checkpoint_cb = CheckpointCallback(
+            save_freq=save_freq,
+            save_path=checkpoint_dir,
+            name_prefix=f"{algo_name}_ckpt"
+        )
 
         new_logger = configure(tb_log_name, ["stdout", "tensorboard"])
         model.set_logger(new_logger)
@@ -105,10 +146,12 @@ def main(args, algo_name):
             total_timesteps=timesteps,
             callback=[checkpoint_cb, episode_cb, step_cb]
         )
-        print(f"Training completed in {(time.time() - start)/60:.2f} minutes")
+        duration_min = (time.time() - start) / 60.0
+        print(f"Training completed in {duration_min:.2f} minutes")
 
         final_path = os.path.join(checkpoint_dir, f"{algo_name}_final")
         model.save(final_path)
+
         vec_env.close()
 
         print(f"Saved model to {final_path}")
@@ -117,10 +160,13 @@ def main(args, algo_name):
         print(f"Step CSV log: {step_csv_path}")
 
 
+# --------------------------------------------------------------
+#  ENTRY POINT
+# --------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="config.yaml", help="Path to config.yaml")
-    parser.add_argument("--algo", type=str, help="Optional: specific algorithm to train (SAC, TD3, DDPG)")
+    parser.add_argument("--algo", type=str, help="Optional: SAC, TD3, or DDPG")
     args = parser.parse_args()
     main(args, args.algo)
 
