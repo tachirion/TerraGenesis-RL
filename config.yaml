@@ -1,0 +1,63 @@
+seed: 42
+
+env:
+  max_steps: 400
+  stable_steps_required: 5
+
+  # Recommended
+  normalize: true
+  norm_reward: false
+  clip_obs: 10.0
+
+training:
+  algorithms:
+    - SAC
+    - TD3
+    - DDPG
+  timesteps: 1_000_000
+  n_envs: 4
+  save_freq: 50_000
+  eval_freq: 50_000
+  eval_episodes: 5
+
+logging:
+  results_dir: logs
+  tb_log_folder: tensorboard
+  csv_log_folder: csv
+
+# Best SAC params from Optuna trial (applied experimentally)
+sac:
+  learning_rate: 4.487646885499198e-05
+  buffer_size: 1_000_000
+  batch_size: 256
+  gamma: 0.9816403217164245
+  tau: 0.01073077717759888
+  ent_coef: 'auto'
+  learning_starts: 10_000
+  net_arch: [128, 128]
+
+td3:
+  learning_rate: 3e-4
+  buffer_size: 1_000_000
+  batch_size: 256
+  gamma: 0.99
+  tau: 0.005
+  learning_starts: 10_000
+  policy_delay: 3
+  target_policy_noise: 0.1
+  target_noise_clip: 0.3
+  net_arch: [256, 256]
+
+ddpg:
+  learning_rate: 1e-4
+  buffer_size: 1_000_000
+  batch_size: 256
+  gamma: 0.99
+  tau: 0.005
+  learning_starts: 5_000
+  net_arch: [400, 300]
+  noise_sigma: 0.2
+  noise_sigma_end: 0.02
+  noise_type: ou
+  lr_schedule: true
+  lr_schedule_end_frac: 0.8
