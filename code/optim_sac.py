@@ -1,3 +1,25 @@
+"""
+TerraGenesis RL SAC Hyperparameter Optimization with Optuna
+
+This script performs automated hyperparameter tuning for SAC (Soft Actor-Critic)
+using Optuna, specifically for the TerraGenesis environment.
+
+Features:
+ - Optimizes key SAC hyperparameters: learning_rate, gamma, tau, batch_size, policy network size
+ - Supports ent_coef (alpha) and target_entropy scaling
+ - Uses separate evaluation environment for reliable mean reward assessment
+ - Integrates Optuna pruning: trials are stopped early if performance is unpromising
+ - Logs intermediate mean rewards and pruning decisions
+
+Workflow:
+ 1. Define SAC hyperparameter search space in optimize_sac()
+ 2. Build vectorized training and evaluation environments
+ 3. Compute action_dim and optionally target_entropy for SAC
+ 4. Train SAC with OptunaCallback for pruning
+ 5. Evaluate final model to report mean reward
+ 6. Repeat for n_trials; Optuna reports the best hyperparameters and reward
+"""
+
 import optuna
 from stable_baselines3 import SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, VecMonitor
@@ -8,6 +30,23 @@ import numpy as np
 
 
 def make_vec_env(seed, max_steps, stable_steps_required):
+    """
+    Build a single-instance vectorized environment wrapped with VecMonitor.
+
+    Parameters
+    ----------
+    seed : int
+        Random seed for environment reproducibility.
+    max_steps : int
+        Maximum steps per episode.
+    stable_steps_required : int
+        Steps required to consider the environment stable (TerraGenesis-specific).
+
+    Returns
+    -------
+    VecMonitor
+        Vectorized and monitored environment.
+    """
     return VecMonitor(
         DummyVecEnv([
             make_env_fn(
@@ -21,8 +60,23 @@ def make_vec_env(seed, max_steps, stable_steps_required):
 
 class OptunaCallback(BaseCallback):
     """
-    Custom callback for Optuna pruning based on mean reward.
-    Reports intermediate rewards and raises TrialPruned if unpromising.
+    Custom callback for Optuna hyperparameter pruning.
+
+    Reports mean reward to Optuna at fixed intervals (eval_freq steps).
+    Raises TrialPruned exception if the trial is unpromising according to the pruner.
+
+    Parameters
+    ----------
+    trial : optuna.trial.Trial
+        Current Optuna trial.
+    eval_env : gym.Env
+        Evaluation environment (separate from training env).
+    n_eval_episodes : int
+        Number of episodes per evaluation.
+    eval_freq : int
+        Frequency (in timesteps) to evaluate the model.
+    verbose : int
+        Verbosity level.
     """
     def __init__(self, trial, eval_env, n_eval_episodes=5, eval_freq=10_000, verbose=1):
         super().__init__(verbose)
@@ -52,39 +106,47 @@ class OptunaCallback(BaseCallback):
 
 
 def optimize_sac(trial):
+    """
+    Objective function for Optuna to optimize SAC hyperparameters.
+
+    Hyperparameters searched:
+     - learning_rate (log uniform)
+     - gamma (float)
+     - tau (log uniform)
+     - batch_size (categorical)
+     - policy net size (categorical)
+     - ent_coef (alpha, log uniform)
+     - target_entropy_scale (float)
+
+    Returns
+    -------
+    float
+        Mean reward after training for this trial.
+    """
     learning_rate = trial.suggest_float("learning_rate", 1e-6, 3e-3, log=True)
     gamma = trial.suggest_float("gamma", 0.9, 0.999)
     tau = trial.suggest_float("tau", 1e-5, 0.02, log=True)
     batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
     net_size = trial.suggest_categorical("net_size", [128, 256, 400])
 
-    # NEW: search for ent_coef (alpha) and target_entropy_scale
-    alpha = trial.suggest_float("alpha", 1e-4, 0.5, log=True)  # ent_coef
+    alpha = trial.suggest_float("alpha", 1e-4, 0.5, log=True)
     target_entropy_scale = trial.suggest_float("target_entropy_scale", 0.1, 2.0)
 
     policy_kwargs = dict(net_arch=[net_size, net_size])
 
     env = make_vec_env(seed=42, max_steps=200, stable_steps_required=5)
-    eval_env = make_vec_env(seed=100, max_steps=200, stable_steps_required=5)  # separate eval env
+    eval_env = make_vec_env(seed=100, max_steps=200, stable_steps_required=5)
 
-    # compute action_dim from env
     action_dim = None
     try:
         action_space = env.action_space
         from gymnasium.spaces import Box
-
         if isinstance(action_space, Box):
             action_dim = int(np.prod(action_space.shape))
-        else:
-            action_dim = None
-
     except Exception:
-        action_dim = None
+        pass
 
-    # compute target_entropy if action_dim available
-    target_entropy = None
-    if action_dim is not None:
-        target_entropy = -float(action_dim) * float(target_entropy_scale)
+    target_entropy = -float(action_dim) * float(target_entropy_scale) if action_dim is not None else None
 
     model = SAC(
         "MlpPolicy",

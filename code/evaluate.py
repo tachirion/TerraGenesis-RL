@@ -1,3 +1,27 @@
+"""
+TerraGenesis RL Evaluation Script
+
+Evaluates trained RL models on the TerraGenesis environment.
+
+Supported Algorithms:
+ - SAC (Soft Actor-Critic)
+ - TD3 (Twin Delayed DDPG)
+ - DDPG (Deep Deterministic Policy Gradient)
+
+Features:
+ - Episode- and step-level logging to CSV
+ - Plots for returns and mean habitability per episode
+ - Reproducible evaluation via configurable seed
+ - Works with any Stable-Baselines3 compatible model
+
+Typical Workflow:
+ 1. Load config.yaml
+ 2. Load trained SB3 model (.zip)
+ 3. Build evaluation environment
+ 4. Evaluate for N episodes
+ 5. Save CSV logs and plots
+"""
+
 import argparse
 import os
 import numpy as np
@@ -15,12 +39,46 @@ CONFIG_DEFAULT = os.path.join(BASE_DIR, "config.yaml")
 ALGOS = {"SAC": SAC, "TD3": TD3, "DDPG": DDPG}
 
 
-def load_config(path):
+def load_config(path: str) -> dict:
+    """
+    Load YAML configuration file.
+
+    Parameters
+    ----------
+    path : str
+        Path to YAML config file.
+
+    Returns
+    -------
+    dict
+        Configuration dictionary.
+    """
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
 
-def evaluate(model, env, n_episodes=100, seed=0):
+def evaluate(model, env, n_episodes: int = 100, seed: int = 0):
+    """
+    Evaluate a trained RL model on the given environment.
+
+    Parameters
+    ----------
+    model : BaseAlgorithm
+        Trained Stable-Baselines3 model.
+    env : gym.Env
+        Environment instance to evaluate on.
+    n_episodes : int
+        Number of episodes to run.
+    seed : int
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    tuple
+        (episode_results, step_results) where:
+        - episode_results: list of dicts with total reward, mean habitability, instability, and resource used per episode
+        - step_results: list of dicts containing step-level metrics
+    """
     episode_results = []
     step_results = []
 
@@ -71,6 +129,14 @@ def evaluate(model, env, n_episodes=100, seed=0):
 
 
 def main(args):
+    """
+    Main evaluation routine.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments parsed by argparse.
+    """
     config = load_config(args.config)
     set_global_seeds(config.get("seed", 0))
     max_steps = config["env"]["max_steps"]
@@ -89,6 +155,7 @@ def main(args):
         seed=seed
     )()
 
+    # Create directories for logs and plots
     log_dir = os.path.join(ROOT_DIR, "logs", "eval")
     plot_dir = os.path.join(ROOT_DIR, "plots")
     os.makedirs(log_dir, exist_ok=True)
@@ -117,17 +184,18 @@ def main(args):
     plt.plot(returns, marker="o")
     plt.xlabel("Episode")
     plt.ylabel("Return")
-    plt.title(f"{algo} evaluation returns")
+    plt.title(f"{algo} Evaluation Returns")
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, f"{algo}_eval_returns.png"))
     plt.close()
 
+    # Plot mean habitability
     plt.figure(figsize=(6, 4))
     plt.plot(habs, marker="o")
     plt.xlabel("Episode")
-    plt.ylabel("Mean habitability")
-    plt.title(f"{algo} evaluation habitability")
+    plt.ylabel("Mean Habitability")
+    plt.title(f"{algo} Evaluation Habitability")
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, f"{algo}_eval_habitability.png"))
@@ -148,7 +216,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     main(args)
-
-# run     : python code/evaluate.py --config code/config.yaml --algo TD3 --model models/td3/td3_final --n_episodes 200
-# or e.g. : python code/evaluate.py --config code/config.yaml --algo SAC --model models/sac/sac_final --n_episodes 200
-# or e.g. : python code/evaluate.py --config code/config.yaml --algo DDPG --model models/ddpg/ddpg_final --n_episodes 200

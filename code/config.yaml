@@ -3,8 +3,6 @@ seed: 42
 env:
   max_steps: 400
   stable_steps_required: 5
-
-  # Recommended
   normalize: true
   norm_reward: false
   clip_obs: 10.0
@@ -25,7 +23,6 @@ logging:
   tb_log_folder: tensorboard
   csv_log_folder: csv
 
-# Best SAC params from Optuna trial (applied experimentally)
 sac:
   learning_rate: 4.487646885499198e-05
   buffer_size: 1_000_000
