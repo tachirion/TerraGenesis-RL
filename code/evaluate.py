@@ -149,6 +149,6 @@ if __name__ == "__main__":
 
     main(args)
 
-# run     : python code\evaluate.py --config code\config.yaml --algo TD3 --model models/td3/td3_final --n_episodes 200
-# or e.g. : python code\evaluate.py --config code\config.yaml --algo SAC --model models/sac/sac_final --n_episodes 200
-# or e.g. : python code\evaluate.py --config code\config.yaml --algo DDPG --model models/ddpg/ddpg_final --n_episodes 200
+# run     : python code/evaluate.py --config code/config.yaml --algo TD3 --model models/td3/td3_final --n_episodes 200
+# or e.g. : python code/evaluate.py --config code/config.yaml --algo SAC --model models/sac/sac_final --n_episodes 200
+# or e.g. : python code/evaluate.py --config code/config.yaml --algo DDPG --model models/ddpg/ddpg_final --n_episodes 200
