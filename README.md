@@ -134,6 +134,8 @@ python code/plots.py
 - Generates learning curves for all trained algorithms. 
 - Compares performance using rolling mean of episode returns.
 
+---
+
 ## Hyperparameter Optimization
 
 Optuna-based tuning for SAC:
