@@ -123,7 +123,6 @@ class TerraGenesisEnv(gym.Env):
         action_cost = float(np.sum(np.square(action)))
         self.resource_used += action_cost
 
-        # --- Reward computation ---
         reward = 0.0
         errors = (self.state[:4] - self.target[:4]) ** 2
         weighted_error = np.sum(self.importance * errors)
@@ -159,7 +158,6 @@ class TerraGenesisEnv(gym.Env):
             terminated = True
             reward -= 50.0
 
-        # --- Threats info ---
         threats = []
         labels = ["Temperature", "Oxygen", "Pressure", "Water"]
         for i, val in enumerate(self.state[:4]):
